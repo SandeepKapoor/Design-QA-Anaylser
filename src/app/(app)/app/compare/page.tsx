@@ -8,11 +8,9 @@ import { ScoreBadge } from "@/components/analysis/score-badge"
 import { FindingsPanel } from "@/components/analysis/findings-panel"
 import { DiffViewer } from "@/components/analysis/diff-viewer"
 import { Play, RotateCcw } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
 
 export default function ComparePage() {
     const { imageA, imageB, setImageA, setImageB, step, setStep, progress, setResults, score, findings, diffImageUrl, reset } = useComparisonStore()
-    const supabase = createClient()
 
     const handleAnalyse = async () => {
         if (!imageA || !imageB) return
@@ -20,42 +18,19 @@ export default function ComparePage() {
         setStep('normalising', 10)
 
         try {
-            const { data: { user } } = await supabase.auth.getUser()
-            if (!user) {
-                alert("You must be logged in to compare designs.")
-                return;
-            }
-
-            const compId = crypto.randomUUID()
-            const extA = imageA.name.split('.').pop() || 'png'
-            const extB = imageB.name.split('.').pop() || 'png'
-
-            const pathA = `${user.id}/${compId}-design.${extA}`
-            const pathB = `${user.id}/${compId}-build.${extB}`
+            // Build FormData to send images directly to the API route
+            const formData = new FormData()
+            formData.append('designImage', imageA)
+            formData.append('implementationImage', imageB)
+            formData.append('projectName', 'Design QA Check')
 
             setStep('normalising', 30)
-
-            // Upload files to Supabase Storage
-            const [uploadA, uploadB] = await Promise.all([
-                supabase.storage.from('designs').upload(pathA, imageA),
-                supabase.storage.from('designs').upload(pathB, imageB)
-            ])
-
-            if (uploadA.error || uploadB.error) {
-                console.error("Upload failed", uploadA.error, uploadB.error)
-                throw new Error("Failed to upload images securely to Supabase.")
-            }
 
             setStep('comparing', 50)
 
             const res = await fetch('/api/compare', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    projectName: 'Interactive Verification',
-                    designImage: pathA,
-                    implementationImage: pathB
-                })
+                body: formData,
             })
 
             setStep('ai', 80)

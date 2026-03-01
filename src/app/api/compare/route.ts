@@ -6,7 +6,7 @@ const groq = new Groq({
     apiKey: process.env.GROQ_API_KEY,
 });
 
-export const maxDuration = 60; // Allow more time for LLM processing
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
     try {
@@ -14,41 +14,56 @@ export async function POST(req: Request) {
         const { data: { user } } = await supabase.auth.getUser();
 
         if (!user) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+            return NextResponse.json({ error: 'Unauthorized. Please log in.' }, { status: 401 });
         }
 
-        const body = await req.json();
-        const { designImage, implementationImage, projectName } = body;
+        // Parse FormData from the client
+        const formData = await req.formData();
+        const designFile = formData.get('designImage') as File | null;
+        const buildFile = formData.get('implementationImage') as File | null;
+        const projectName = (formData.get('projectName') as string) || 'Untitled Project';
 
-        if (!designImage || !implementationImage) {
-            return NextResponse.json({ error: 'Missing image paths' }, { status: 400 });
+        if (!designFile || !buildFile) {
+            return NextResponse.json({ error: 'Missing image files' }, { status: 400 });
         }
 
-        // 1. Download images from Supabase Storage
-        const { data: designData, error: designError } = await supabase.storage
-            .from('designs')
-            .download(designImage);
+        console.log('[Compare] Received files. Design:', designFile.name, designFile.size, 'Build:', buildFile.name, buildFile.size);
 
-        const { data: buildData, error: buildError } = await supabase.storage
-            .from('designs')
-            .download(implementationImage);
+        // 1. Upload to Supabase Storage
+        const compId = crypto.randomUUID();
+        const extA = designFile.name.split('.').pop() || 'png';
+        const extB = buildFile.name.split('.').pop() || 'png';
+        const pathA = `${user.id}/${compId}-design.${extA}`;
+        const pathB = `${user.id}/${compId}-build.${extB}`;
 
-        if (designError || buildError || !designData || !buildData) {
-            console.error('Storage Error:', designError || buildError);
-            return NextResponse.json({ error: 'Failed to download images' }, { status: 500 });
+        const [uploadA, uploadB] = await Promise.all([
+            supabase.storage.from('designs').upload(pathA, designFile),
+            supabase.storage.from('designs').upload(pathB, buildFile),
+        ]);
+
+        if (uploadA.error || uploadB.error) {
+            console.error('[Compare] Upload error:', JSON.stringify(uploadA.error || uploadB.error));
+            return NextResponse.json({
+                error: `Upload failed: ${(uploadA.error || uploadB.error)?.message}`
+            }, { status: 500 });
         }
 
-        const designBuffer = Buffer.from(await designData.arrayBuffer());
-        const buildBuffer = Buffer.from(await buildData.arrayBuffer());
+        console.log('[Compare] Images uploaded to storage.');
 
-        const designBase64 = `data:${designData.type};base64,${designBuffer.toString('base64')}`;
-        const buildBase64 = `data:${buildData.type};base64,${buildBuffer.toString('base64')}`;
+        // 2. Convert to Base64 for Groq Vision
+        const designBuffer = Buffer.from(await designFile.arrayBuffer());
+        const buildBuffer = Buffer.from(await buildFile.arrayBuffer());
 
-        // 2. Call Groq Llama 3 Vision
+        const designBase64 = `data:${designFile.type || 'image/png'};base64,${designBuffer.toString('base64')}`;
+        const buildBase64 = `data:${buildFile.type || 'image/png'};base64,${buildBuffer.toString('base64')}`;
+
+        // 3. Call Groq Llama 3.2 Vision
+        console.log('[Compare] Calling Groq Vision API...');
+
         const prompt = `You are an expert Frontend Quality Assurance Engineer and Designer.
-I am providing you with two images:
-1. The first image is the original Design Mockup.
-2. The second image is the built Implementation.
+I am providing you with two images.
+The FIRST image is the original Design Mockup.
+The SECOND image is the built Implementation.
 
 Compare the Implementation to the Design. Look for differences in:
 - Typography (font size, weight, alignment constraints)
@@ -58,10 +73,10 @@ Compare the Implementation to the Design. Look for differences in:
 
 Return a strictly valid JSON object with EXACTLY this structure:
 {
-  "score": <number between 0 and 100 representing how close the implementation matches the design (100 is perfect)>,
+  "score": <number between 0 and 100 representing how close the implementation matches the design>,
   "findings": [
     {
-      "id": "<generate a random string id>",
+      "id": "<unique string>",
       "category": "<typography|spacing|color|layout|content>",
       "description": "<A short, actionable description of the difference>",
       "severity": "<high|medium|low>",
@@ -85,38 +100,60 @@ No markdown blocks, no other text. Just the JSON.`;
                 }
             ],
             temperature: 0.1,
-            response_format: { type: "json_object" }
         });
 
         const responseContent = completion.choices[0]?.message?.content || '{}';
+        console.log('[Compare] Groq response:', responseContent.substring(0, 500));
 
-        // Ensure parsing works
+        // 4. Parse JSON — handle markdown code fences
         let analysis;
         try {
-            analysis = JSON.parse(responseContent);
+            let cleaned = responseContent.trim();
+            if (cleaned.startsWith('```json')) {
+                cleaned = cleaned.slice(7);
+            } else if (cleaned.startsWith('```')) {
+                cleaned = cleaned.slice(3);
+            }
+            if (cleaned.endsWith('```')) {
+                cleaned = cleaned.slice(0, -3);
+            }
+            analysis = JSON.parse(cleaned.trim());
         } catch (e) {
-            console.error('Failed to parse Groq response:', responseContent);
-            return NextResponse.json({ error: 'Invalid analysis from AI' }, { status: 500 });
+            console.error('[Compare] Failed to parse Groq response:', responseContent);
+            analysis = {
+                score: 50,
+                findings: [
+                    {
+                        id: 'parse-error',
+                        category: 'content',
+                        severity: 'medium',
+                        description: 'AI analysis returned improperly formatted results. Please try again.',
+                        location_hint: 'entire page'
+                    }
+                ]
+            };
         }
 
-        // 3. Save to database
+        // 5. Save to database
         const { data: dbRecord, error: dbError } = await supabase
             .from('comparisons')
             .insert({
                 user_id: user.id,
-                project_name: projectName || 'Untitled Project',
-                design_image_url: designImage,
-                implementation_image_url: implementationImage,
+                project_name: projectName,
+                design_image_url: pathA,
+                implementation_image_url: pathB,
                 score: analysis.score || 0,
                 findings: analysis.findings || [],
-                status: analysis.score === 100 ? 'match' : 'fail'
+                status: (analysis.score || 0) >= 95 ? 'match' : (analysis.score || 0) >= 70 ? 'partial' : 'fail'
             })
             .select()
             .single();
 
         if (dbError) {
-            console.error('DB Insert Error:', dbError);
+            console.error('[Compare] DB Insert Error:', JSON.stringify(dbError));
         }
+
+        console.log('[Compare] ✅ Done. Score:', analysis.score, 'Findings:', (analysis.findings || []).length);
 
         return NextResponse.json({
             id: dbRecord?.id || 'temp-id',
@@ -125,8 +162,10 @@ No markdown blocks, no other text. Just the JSON.`;
             diffImageUrl: null
         });
 
-    } catch (error) {
-        console.error('API Error:', error);
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    } catch (error: any) {
+        console.error('[Compare] ❌ Error:', error?.message || error);
+        return NextResponse.json({
+            error: error?.message || 'Internal Server Error'
+        }, { status: 500 });
     }
 }
