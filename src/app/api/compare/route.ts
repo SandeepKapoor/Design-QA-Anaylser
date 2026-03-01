@@ -57,35 +57,51 @@ export async function POST(req: Request) {
         const designBase64 = `data:${designFile.type || 'image/png'};base64,${designBuffer.toString('base64')}`;
         const buildBase64 = `data:${buildFile.type || 'image/png'};base64,${buildBuffer.toString('base64')}`;
 
-        // 3. Call Groq Vision with a strict QA prompt
+        // 3. Call Groq Vision — Senior UI Auditor Prompt
         console.log('[Compare] Calling Groq Vision API...');
 
-        const systemPrompt = `You are an extremely strict and critical Frontend QA Engineer. You NEVER say two images are identical unless they are literally the same pixel-for-pixel screenshot. You are known for being harsh and finding every tiny difference. If the two images show completely different content or different pages, the score must be 0-10. Be brutally honest.`;
+        const systemPrompt = `You are a Senior UI Auditor who specializes in design-to-developer handoff quality assurance. Your job is to identify every pixel-level discrepancy between a designer's mockup and a developer's implementation. You are meticulous, harsh, and never give a perfect score unless the screenshots are literally indistinguishable. You express measurements in approximate pixel values and reference specific CSS properties. If the two images show completely different content, the score MUST be 0-10.`;
 
-        const userPrompt = `Analyze these two UI screenshots for visual differences.
+        const userPrompt = `Perform a thorough UI audit comparing these two screenshots.
 
-IMAGE 1 = The expected Design / Reference screenshot.
-IMAGE 2 = The actual Implementation / Built screenshot.
+IMAGE 1 = The original DESIGN mockup (created by the designer in Figma/Sketch).
+IMAGE 2 = The DEVELOPER BUILD (the actual coded implementation in a browser).
 
-RULES:
-- If the images show COMPLETELY DIFFERENT content (different pages, different apps, different text), the score MUST be between 0 and 10.
-- If the images show the SAME page but with differences, score between 11 and 94 based on severity.
-- Only score 95-100 if the images are virtually pixel-perfect identical.
-- You MUST list at least 1 finding. An empty findings array is NOT allowed.
-- Be extremely critical. Even tiny differences in font size, color shade, spacing, or alignment count.
+Audit the following 6 categories systematically:
 
-For each difference found, categorize it as: typography, spacing, color, layout, or content.
+1. SPACING: Check padding inside every component, margins between components, gap between elements. Estimate differences in pixels (e.g., "top padding is ~8px too large").
 
-Return ONLY a valid JSON object (no markdown, no explanation):
+2. TYPOGRAPHY: Check font-size, font-weight (bold vs regular vs semibold), line-height, letter-spacing, text-transform (uppercase vs lowercase), and text alignment for every text element.
+
+3. COLOR: Check exact background colors, text colors, border colors, and shadow colors. Reference approximate hex values when possible (e.g., "background is #1a1a2e in design but appears as #0d0d1a in build").
+
+4. LAYOUT: Check container widths, element positions, flex/grid alignment, vertical/horizontal centering, and overall page structure.
+
+5. COMPONENT: Check border-radius values, box-shadow depth/spread, button heights/widths, input field sizes, icon sizes, and interactive element dimensions.
+
+6. CONTENT: Check for missing text, extra elements, wrong icons, truncated strings, or placeholder content that wasn't replaced.
+
+SCORING RULES:
+- 0-10: Images show completely different content or pages.
+- 11-50: Same page but with many structural differences.
+- 51-80: Same page, mostly correct, but several spacing/typography/color issues.
+- 81-94: Very close match with only minor pixel-level discrepancies.
+- 95-100: Virtually pixel-perfect. Reserve this ONLY for near-identical screenshots.
+
+You MUST return at least 1 finding. Be extremely thorough.
+
+Return ONLY valid JSON (no markdown fences, no explanation text):
 {
   "score": <number 0-100>,
   "findings": [
     {
-      "id": "<unique-id>",
-      "category": "<typography|spacing|color|layout|content>",
-      "description": "<specific actionable description>",
+      "id": "<unique-string>",
+      "category": "<spacing|typography|color|layout|component|content>",
       "severity": "<high|medium|low>",
-      "location_hint": "<where on the screen>"
+      "description": "<specific actionable description of the discrepancy>",
+      "location_hint": "<which part of the screen or which UI element>",
+      "expected": "<what the design shows, e.g. 'padding: 16px' or 'font-weight: 600' or '#1a1a2e'>",
+      "actual": "<what the build shows, e.g. 'padding: 24px' or 'font-weight: 400' or '#0d0d1a'>"
     }
   ]
 }`;

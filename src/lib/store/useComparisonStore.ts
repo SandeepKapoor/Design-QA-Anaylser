@@ -4,10 +4,12 @@ export type AnalysisStep = 'idle' | 'normalising' | 'comparing' | 'ai' | 'comple
 
 export interface Finding {
     id: string
-    category: 'layout' | 'colour' | 'typography' | 'content' | 'removed'
+    category: 'spacing' | 'typography' | 'color' | 'layout' | 'component' | 'content'
     severity: 'high' | 'medium' | 'low'
     description: string
     location_hint: string
+    expected?: string
+    actual?: string
 }
 
 export interface ComparisonState {
