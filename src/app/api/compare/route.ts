@@ -57,49 +57,56 @@ export async function POST(req: Request) {
         const designBase64 = `data:${designFile.type || 'image/png'};base64,${designBuffer.toString('base64')}`;
         const buildBase64 = `data:${buildFile.type || 'image/png'};base64,${buildBuffer.toString('base64')}`;
 
-        // 3. Call Groq Llama 3.2 Vision
+        // 3. Call Groq Vision with a strict QA prompt
         console.log('[Compare] Calling Groq Vision API...');
 
-        const prompt = `You are an expert Frontend Quality Assurance Engineer and Designer.
-I am providing you with two images.
-The FIRST image is the original Design Mockup.
-The SECOND image is the built Implementation.
+        const systemPrompt = `You are an extremely strict and critical Frontend QA Engineer. You NEVER say two images are identical unless they are literally the same pixel-for-pixel screenshot. You are known for being harsh and finding every tiny difference. If the two images show completely different content or different pages, the score must be 0-10. Be brutally honest.`;
 
-Compare the Implementation to the Design. Look for differences in:
-- Typography (font size, weight, alignment constraints)
-- Spacing (margins, padding, gap)
-- Colors (backgrounds, text, borders)
-- Layout structure and missing/extra elements
+        const userPrompt = `Analyze these two UI screenshots for visual differences.
 
-Return a strictly valid JSON object with EXACTLY this structure:
+IMAGE 1 = The expected Design / Reference screenshot.
+IMAGE 2 = The actual Implementation / Built screenshot.
+
+RULES:
+- If the images show COMPLETELY DIFFERENT content (different pages, different apps, different text), the score MUST be between 0 and 10.
+- If the images show the SAME page but with differences, score between 11 and 94 based on severity.
+- Only score 95-100 if the images are virtually pixel-perfect identical.
+- You MUST list at least 1 finding. An empty findings array is NOT allowed.
+- Be extremely critical. Even tiny differences in font size, color shade, spacing, or alignment count.
+
+For each difference found, categorize it as: typography, spacing, color, layout, or content.
+
+Return ONLY a valid JSON object (no markdown, no explanation):
 {
-  "score": <number between 0 and 100 representing how close the implementation matches the design>,
+  "score": <number 0-100>,
   "findings": [
     {
-      "id": "<unique string>",
+      "id": "<unique-id>",
       "category": "<typography|spacing|color|layout|content>",
-      "description": "<A short, actionable description of the difference>",
+      "description": "<specific actionable description>",
       "severity": "<high|medium|low>",
-      "location_hint": "<The general location or name of the UI element>"
+      "location_hint": "<where on the screen>"
     }
   ]
-}
-
-No markdown blocks, no other text. Just the JSON.`;
+}`;
 
         const completion = await groq.chat.completions.create({
             model: "meta-llama/llama-4-scout-17b-16e-instruct",
             messages: [
                 {
+                    role: "system",
+                    content: systemPrompt
+                },
+                {
                     role: "user",
                     content: [
-                        { type: "text", text: prompt },
+                        { type: "text", text: userPrompt },
                         { type: "image_url", image_url: { url: designBase64 } },
                         { type: "image_url", image_url: { url: buildBase64 } }
                     ],
                 }
             ],
-            temperature: 0.1,
+            temperature: 0.2,
         });
 
         const responseContent = completion.choices[0]?.message?.content || '{}';
