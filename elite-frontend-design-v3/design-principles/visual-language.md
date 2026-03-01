@@ -1,0 +1,1 @@
+Hierarchy through contrast and spatial rhythm.

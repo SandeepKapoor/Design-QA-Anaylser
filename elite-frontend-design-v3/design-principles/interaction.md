@@ -1,0 +1,1 @@
+Every interaction must communicate state and causality.
