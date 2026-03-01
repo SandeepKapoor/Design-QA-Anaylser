@@ -59,6 +59,6 @@
 ## ✅ Completion Checklist
 
 - [ ] OpenAI API key created and added to `.env.local`
-- [ ] Vercel project connected to GitHub repo (for prod)
-- [ ] Vercel Environment Variables added
-- [ ] Supabase auth redirect URLs updated with Vercel domain
+- [x] Vercel project connected to GitHub repo (for prod)
+- [x] Vercel Environment Variables added
+- [x] Supabase auth redirect URLs updated with Vercel domain
