@@ -5,15 +5,13 @@
 
 ---
 
-## 🟡 1. OpenAI — API Key (Required for Analyser)
+## 🟡 1. Groq — API Key (Required for Analyser)
 
 | # | Task | Notes |
 |---|---|---|
-| 1.1 | **Create an OpenAI account** at [platform.openai.com](https://platform.openai.com) | |
-| 1.2 | **Add billing / payment method** | GPT-4o Vision requires a paid API plan |
-| 1.3 | **Create an API key** | Platform → API Keys → Create new secret key |
-| 1.4 | **Add the key to `.env.local`** | Paste as `OPENAI_API_KEY=sk-your-key-here` |
-| 1.5 | **Set a usage limit** (recommended) | Platform → Usage Limits → set monthly hard cap e.g. $50 |
+| 1.1 | **Create a Groq account** at [console.groq.com](https://console.groq.com) | |
+| 1.2 | **Create an API key** | Console → API Keys → Create API Key |
+| 1.3 | **Add the key to `.env.local`** | Paste as `GROQ_API_KEY=gsk_your-key-here` |
 
 ---
 
@@ -31,7 +29,7 @@
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://kuozhauvyywaytapoxzr.supabase.co` | Production + Preview + Dev |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY` | `sb_publishable_XQTr...` | Production + Preview + Dev |
-| `OPENAI_API_KEY` | Your OpenAI key | Production + Preview only |
+| `GROQ_API_KEY` | Your Groq key | Production + Preview only |
 
 ---
 
@@ -58,7 +56,7 @@
 
 ## ✅ Completion Checklist
 
-- [ ] OpenAI API key created and added to `.env.local`
+- [x] Groq API key created and added to `.env.local`
 - [x] Vercel project connected to GitHub repo (for prod)
 - [x] Vercel Environment Variables added
 - [x] Supabase auth redirect URLs updated with Vercel domain
