@@ -8,31 +8,77 @@ import { ScoreBadge } from "@/components/analysis/score-badge"
 import { FindingsPanel } from "@/components/analysis/findings-panel"
 import { DiffViewer } from "@/components/analysis/diff-viewer"
 import { Play, RotateCcw } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
 
 export default function ComparePage() {
     const { imageA, imageB, setImageA, setImageB, step, setStep, progress, setResults, score, findings, diffImageUrl, reset } = useComparisonStore()
+    const supabase = createClient()
 
     const handleAnalyse = async () => {
         if (!imageA || !imageB) return
 
-        // START mockup analysis progress since backend isn't linked yet
         setStep('normalising', 10)
 
-        setTimeout(() => setStep('normalising', 30), 1000)
-        setTimeout(() => setStep('comparing', 50), 2000)
-        setTimeout(() => setStep('comparing', 75), 3500)
-        setTimeout(() => setStep('ai', 90), 5000)
-        setTimeout(() => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) {
+                alert("You must be logged in to compare designs.")
+                return;
+            }
+
+            const compId = crypto.randomUUID()
+            const extA = imageA.name.split('.').pop() || 'png'
+            const extB = imageB.name.split('.').pop() || 'png'
+
+            const pathA = `${user.id}/${compId}-design.${extA}`
+            const pathB = `${user.id}/${compId}-build.${extB}`
+
+            setStep('normalising', 30)
+
+            // Upload files to Supabase Storage
+            const [uploadA, uploadB] = await Promise.all([
+                supabase.storage.from('designs').upload(pathA, imageA),
+                supabase.storage.from('designs').upload(pathB, imageB)
+            ])
+
+            if (uploadA.error || uploadB.error) {
+                console.error("Upload failed", uploadA.error, uploadB.error)
+                throw new Error("Failed to upload images securely to Supabase.")
+            }
+
+            setStep('comparing', 50)
+
+            const res = await fetch('/api/compare', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    projectName: 'Interactive Verification',
+                    designImage: pathA,
+                    implementationImage: pathB
+                })
+            })
+
+            setStep('ai', 80)
+
+            const data = await res.json()
+
+            if (!res.ok) {
+                throw new Error(data.error || "Analysis failed")
+            }
+
+            setStep('complete', 100)
+
             setResults(
-                92.5,
-                URL.createObjectURL(imageB), // fallback using imageB as mock diff
-                [
-                    { id: '1', category: 'layout', severity: 'high', description: 'Primary button moved 8px down', location_hint: 'bottom-right' },
-                    { id: '2', category: 'colour', severity: 'medium', description: 'Header background changed from #003D99 to #001F80', location_hint: 'top header' },
-                    { id: '3', category: 'typography', severity: 'low', description: 'Title font-weight changed from 400 to 600', location_hint: 'hero section' }
-                ]
+                data.score || 0,
+                URL.createObjectURL(imageB),
+                data.findings || []
             )
-        }, 7000)
+
+        } catch (err: any) {
+            console.error(err)
+            setStep('error', 100)
+            alert(err.message || "An error occurred during analysis.")
+        }
     }
 
     const isReady = imageA && imageB
